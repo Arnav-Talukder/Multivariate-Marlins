@@ -69,42 +69,27 @@ player_outliers["Outliers No Rookie"] = as.numeric(unlist(player_outliers["Outli
 player_outliers["Number of Years Played"] = as.numeric(unlist(player_outliers["Number of Years Played"]))
 
 games_player = milb %>% group_by(`Player ID`) %>% 
-                summarise(mean_games=mean(G), prop_games=mean(GamesOverMax),
+                summarise(mean_games=mean(G), prop_games=mean(GamesOverMax), number_below_median = sum(`Below Median Annualy`),
                 .groups = 'drop')
 
 games_player = left_join(games_player, player_outliers, by = "Player ID")
 
-mlb_player = mlb[, c("G","PA","HR","R","RBI","SB","ISO","BABIP",
-                     "AVG","OBP","SLG","wOBA","BsR","Off",
-                     "Def","WAR", "Player ID")] %>% group_by(`Player ID`) %>% 
+mlb$`BB%` <- as.numeric(gsub("[\\%,]", "", mlb$`BB%`))
+mlb$`K%` <- as.numeric(gsub("[\\%,]", "", mlb$`K%`))
+
+mlb_player = mlb[unlist(lapply(mlb, is.numeric))] %>% group_by(`Player ID`) %>% 
   summarise(across(everything(), mean),
             .groups = 'drop')  %>%
   as.data.frame()
 
 full_data = left_join(mlb_player, games_player, by = "Player ID")
 
-full_data["Below Median"] = ifelse(full_data["prop_games"] < median(as.numeric(unlist(full_data["prop_games"]))), 1, 0)
 
 
-# ds_cor <- full_data %>%
-#   select(-c(`Player ID`, `Games Per Year`)) %>% 
-#   as.matrix() %>%
-#   cor()
-# 
-# 
-# library(corrplot)
-# corrplot(ds_cor, type = "upper", order = "hclust", 
-#          tl.col = "black", tl.srt = 45)
-
-anova_model = aov(WAR ~ Outliers + `Below Median`, data = full_data)
+anova_model = aov(WAR ~ Outliers + `Below Median`+ `Years Below Median`, data = full_data)
 summary(anova_model)
 plot(WAR ~ Outliers, data = full_data)
-boxplot(WAR ~ Outliers + `Below Median`, data= full_data)
 
-anova_model = aov(WAR ~ `Outliers No Rookie` + `Below Median`, data = full_data)
-summary(anova_model)
-plot(WAR ~ `Outliers No Rookie`, data = full_data)
-boxplot(WAR ~interaction(`Outliers No Rookie`, `Below Median`, lex.order=T), data= full_data)
 
 
 
