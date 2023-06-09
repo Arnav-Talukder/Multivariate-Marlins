@@ -1,0 +1,227 @@
+---
+title: "Final"
+author: "Arnav Talukder, UID:205303779"
+date: "2023-05-25"
+output: html_document
+---
+
+```{r}
+library(kableExtra)
+library(car)
+library(tidyverse)
+library(MASS)
+library(class)
+library(dplyr)
+library(randomForest)
+library(tidyr)
+library(DescTools)
+library(fastDummies)
+library(gbm)
+library(stringr)
+library(tree)
+MILB_Batting <- read_csv("MILB_Batting.csv")
+summary(MILB_Batting)
+MILB_Batting
+slackers <- which(MILB_Batting$G<106)
+stars <- which(MILB_Batting$G>106)
+lazy <- MILB_Batting[slackers,]
+library(xtable)
+lazy[,28]
+```
+
+```{r}
+milb <- read_delim("MILB_Batting_GM.csv")
+mlb <- read_delim("MLB_Batting.csv")
+
+#library(openxlsx)
+#write.xlsx(milb, '~/Desktop/Projects/new_file.xlsx')
+
+players = unique(milb["Player ID"])
+
+player_outliers <- data.frame()
+
+for (id in unlist(players)){
+  player_data = milb[milb["Player ID"] == id, ]
+  # Example data: Number of games played in the minor leagues for each year
+  games_played <- unlist(player_data["G"])
+  
+  # Calculate the interquartile range (IQR)
+  Q1 <- quantile(games_played, 0.25)
+  Q3 <- quantile(games_played, 0.75)
+  IQR <- Q3 - Q1
+  
+  # Calculate the lower and upper fences
+  lower_fence <- Q1 - (1.5 * IQR)
+  upper_fence <- Q3 + (1.5 * IQR)
+  
+  # Identify outliers
+  outliers <- games_played < lower_fence
+  
+  # Example data: Number of games played in the minor leagues for each year NO ROOKIE YEAR
+  games_played_norook <- (unlist(player_data["G"]))[-1]
+  
+  # Calculate the interquartile range (IQR)
+  Q1_norook <- quantile(games_played_norook, 0.25)
+  Q3_norook <- quantile(games_played_norook, 0.75)
+  IQR_norook <- Q3_norook - Q1_norook
+  
+  # Calculate the lower and upper fences
+  lower_fence_norook <- Q1_norook - (1.5 * IQR_norook)
+  upper_fence_norook <- Q3_norook + (1.5 * IQR_norook)
+  
+  # Identify outliers
+  outliers_norook <- games_played_norook < lower_fence_norook
+  
+  # Display the outliers
+  # Consider the rookie year numbers
+  gp_out_sum <- sum(outliers)
+  
+  gp_out_norook <- sum(outliers_norook)
+  
+  # Get total number of years played
+  n_years <- length(games_played)
+  
+  player_outliers = rbind(player_outliers , c(games = paste(games_played,collapse=','), 
+                                              out_sum = gp_out_sum, 
+                                              out_sum_norook = gp_out_norook,
+                                              n_years = n_years, 
+                                              player_id = id))
+  
+}
+
+colnames(player_outliers) = c("Games Per Year", "Outliers", "Outliers No Rookie", 
+                              "Number of Years Played", "Player ID")
+
+player_outliers["Player ID"] = as.numeric(unlist(player_outliers["Player ID"]))
+player_outliers["Outliers"] = as.numeric(unlist(player_outliers["Outliers"]))
+player_outliers["Outliers No Rookie"] = as.numeric(unlist(player_outliers["Outliers No Rookie"]))
+player_outliers["Number of Years Played"] = as.numeric(unlist(player_outliers["Number of Years Played"]))
+
+games_player = milb %>% group_by(`Player ID`) %>% 
+                summarise(mean_games=mean(G), prop_games=mean(GamesOverMax),
+                .groups = 'drop')
+
+games_player = left_join(games_player, player_outliers, by = "Player ID")
+
+mlb_player = mlb[, c("G","PA","HR","R","RBI","SB","ISO","BABIP",
+                     "AVG","OBP","SLG","wOBA","BsR","Off",
+                     "Def","WAR", "Player ID")] %>% group_by(`Player ID`) %>% 
+  summarise(across(everything(), mean),
+            .groups = 'drop')  %>%
+  as.data.frame()
+
+full_data = left_join(mlb_player, games_player, by = "Player ID")
+
+full_data["Below Median"] = ifelse(full_data["prop_games"] < median(as.numeric(unlist(full_data["prop_games"]))), 1, 0)
+
+
+# ds_cor <- full_data %>%
+#   select(-c(`Player ID`, `Games Per Year`)) %>% 
+#   as.matrix() %>%
+#   cor()
+# 
+# 
+# library(corrplot)
+# corrplot(ds_cor, type = "upper", order = "hclust", 
+#          tl.col = "black", tl.srt = 45)
+
+anova_model = aov(WAR ~ Outliers + `Below Median`, data = full_data)
+summary(anova_model)
+plot(WAR ~ Outliers, data = full_data)
+boxplot(WAR ~ Outliers + `Below Median`, data= full_data)
+
+anova_model = aov(WAR ~ `Outliers No Rookie` + `Below Median`, data = full_data)
+summary(anova_model)
+plot(WAR ~ `Outliers No Rookie`, data = full_data)
+boxplot(WAR ~interaction(`Outliers No Rookie`, `Below Median`, lex.order=T), data= full_data)
+boxplot(OBP ~interaction(`Outliers No Rookie`, `Below Median`, lex.order=T), data= full_data)
+boxplot(WAR ~ Outliers + `Below Median`, data= full_data)
+anova_model2 = aov(AVG ~ `Outliers No Rookie` + `Below Median`, data = full_data)
+summary(anova_model2)
+anova_model3 = aov(AVG ~ Outliers + `Below Median`, data = full_data)
+summary(anova_model3)
+anova_model4 = aov(OBP ~ `Outliers No Rookie` + `Below Median`, data = full_data)
+summary(anova_model4)
+anova_model5 = aov(OBP ~ Outliers + `Below Median`, data = full_data)
+summary(anova_model5)
+anova_model6 = aov(RBI ~ `Outliers No Rookie` + `Below Median`, data = full_data)
+summary(anova_model6)
+anova_model7 = aov(RBI ~ Outliers + `Below Median`, data = full_data)
+summary(anova_model7)
+anova_model8 = aov(HR ~ `Outliers No Rookie` + `Below Median`, data = full_data)
+summary(anova_model8)
+anova_model9 = aov(HR ~ Outliers + `Below Median`, data = full_data)
+summary(anova_model9)
+anova_model10 = aov(ISO ~ `Outliers No Rookie` + `Below Median`, data = full_data)
+summary(anova_model10)
+anova_model11 = aov(ISO ~ Outliers + `Below Median`, data = full_data)
+summary(anova_model11)
+anova_model12 = aov(OBP ~ `Outliers No Rookie` + `Below Median`, data = full_data)
+summary(full_data)
+plot(full_data$mean_games, full_data$WAR, ylab="WAR", xlab="Mean Games played", main="War vs Mean Games played")
+plot(full_data$mean_games, full_data$OBP, ylab="OBP", xlab="Mean Games played", main="OBP vs Mean Games played")
+plot(full_data$mean_games, full_data$AVG, ylab="AVG", xlab="Mean Games played", main="AVG vs Mean Games played")
+plot(full_data$mean_games, full_data$SLG, ylab="SLG", xlab="Mean Games played", main="SLG vs Mean Games played")
+plot(full_data$mean_games, full_data$wOBA, ylab="wOBA", xlab="Mean Games played", main="OBA vs Mean Games played")
+plot(full_data$G, full_data$WAR, ylab="WAR", xlab="Games played", main="War vs Games played")
+plot(full_data$G, full_data$OBP, ylab="OBP", xlab="Games played", main="OBP vs Games played")
+plot(full_data$G, full_data$AVG, ylab="AVG", xlab="Games played", main="AVG vs Games played")
+plot(full_data$G, full_data$SLG, ylab="SLG", xlab="Games played", main="SLG vs Games played")
+plot(full_data$G, full_data$wOBA,  ylab="wOBA", xlab="Games played", main="wOBA vs Games played")
+Mod1 <- randomForest(G~WAR+OBP+AVG+SLG+wOBA, data=full_data)
+importance(Mod1)
+Mod1
+Mod2 <- randomForest(mean_games~WAR+OBP+AVG+SLG+wOBA, data=full_data)
+importance(Mod2)
+Mod2
+```
+
+```{r}
+library(schoRsch)
+library(stargazer)
+W_names <- read_csv("Batting_W_Names.csv")
+MVP <- read_csv("MVP.csv")
+class(W_names)
+summary(W_names)
+# Create a logical vector indicating whether each name in W_names is present in MVP$Name
+is_present <- MVP$MVP %in% W_names$Name
+# Get the indices of the matching names
+indices <- which(is_present)
+
+# Print the indices of the matching names
+print(indices)
+MVP_winners <- W_names[indices,]
+MVP_winners$Name
+summary(MVP_winners)
+barplot(MVP_winners$G, xlab= "MVP Winners", ylab="Games Played", col=5)
+MVP_model = aov(WAR ~ MVP_winners$`Outliers` + MVP_winners$`Years Below Median`, data = MVP_winners)
+xtable(summary(MVP_model))
+table(summary(MVP_model))
+t.test(MVP_winners$G, W_names$G)
+
+W_names <- read_csv("Pitching_W_Names.csv")
+CY <- read_csv("CY.csv")
+summary(W_names)
+# Create a logical vector indicating whether each name in W_names is present in MVP$Name
+is_present <- CY$CY%in% W_names$Name
+# Get the indices of the matching names
+indices <- which(is_present)
+print(indices)
+CY_Young <- W_names[indices,]
+CY_Young$Name
+summary(CY_Young)
+barplot(CY_Young$G, xlab = "CY Young Winners", ylab = "Games Played", col=2)
+CY_Young_model = aov(WAR ~ CY_Young$`Outliers` + CY_Young$`Years Below Median`, data = CY_Young)
+xtable(summary(CY_Young_model))
+table(summary(CY_Young_model))
+CY_t <- t.test(CY_Young$G, W_names$G)
+CY_t
+library(ggplot2)
+
+# Create a bar plot using ggplot
+ggplot(MVP_winners, aes(x = 1, y = G)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  xlab("") + ylab("Number of Games") +
+  ggtitle("Bar Plot of MVP's games played")
+```
+
